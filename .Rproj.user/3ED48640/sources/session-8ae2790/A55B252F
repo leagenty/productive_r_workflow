@@ -1,0 +1,26 @@
+{
+    "id": "A55B252F",
+    "path": "~/productive_r_workflow/r/analysis.R",
+    "project_path": "r/analysis.R",
+    "type": "r_source",
+    "hash": "3075901001",
+    "contents": "",
+    "dirty": false,
+    "created": 1716818790872.0,
+    "source_on_save": false,
+    "relative_order": 4,
+    "properties": {
+        "source_window_id": "",
+        "Source": "Source",
+        "cursorPosition": "41,15",
+        "scrollLine": "20"
+    },
+    "folds": "",
+    "lastKnownWriteTime": 1716818803,
+    "encoding": "UTF-8",
+    "collab_server": "",
+    "source_window": "",
+    "last_content_update": 1716818803546,
+    "read_only": false,
+    "read_only_alternatives": []
+}
