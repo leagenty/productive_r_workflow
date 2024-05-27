@@ -1,0 +1,2108 @@
+---
+title: "ress_flo_analyses_80q"
+author: "Léa Genty"
+date: "2023-03-09"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# Packages + open data
+```{r}
+library(corrplot)
+library(tidyverse)
+library(lme4)
+library(MuMIn)
+library(MASS)
+library(AICcmodavg)
+library(car)
+library(AUC)
+library(pracma)
+library(lubridate)
+library(agricolae)
+library(FactoMineR)
+library(factoextra)
+library(Hmisc)
+library(multcompView)
+
+pheno_meteo <- read.csv(file="D:/Mes Donnees/Donnees_these/Donnees_Lea/Data_op/pheno_meteo_year.csv",sep=";")
+pic_flo_80q <- read.csv(file="D:/Mes Donnees/Donnees_these/Donnees_Lea/Data_op/pheno_pic_flo.csv",sep=";") %>% 
+  mutate(date=dmy(date),
+         debut_pic_date=dmy(debut_pic_date),
+         fin_pic_date = dmy(fin_pic_date))
+nbsp_tot <- read.csv(file="D:/Mes Donnees/Donnees_these/Donnees_Lea/Data_op/nb_sp_tot_oliveraies.csv",sep=";") 
+mois_tonte <- read.csv(file="D:/Mes Donnees/Donnees_these/Donnees_Lea/Data_op/pheno_tontes_par_mois.csv",sep=";")
+cwv <- read.csv(file="D:/Mes Donnees/Donnees_these/Donnees_Lea/Data_op/cwv_80q.csv",sep=";")
+
+
+pheno_funct_80q <- read.csv(file="D:/Mes Donnees/Donnees_these/Donnees_Lea/Data_op/pheno_funct_80q.csv",sep=";") %>% 
+  left_join(pheno_meteo) %>% 
+  left_join(pic_flo_80q) %>% 
+  left_join(nbsp_tot) %>% 
+   left_join(cwv)
+
+
+pheno_comm_80q <- read.csv(file="D:/Mes Donnees/Donnees_these/Donnees_Lea/Data_op/pheno_comm_80q.csv",sep=";")%>% 
+  left_join(pheno_meteo)%>% 
+  left_join(pic_flo_80q)%>% 
+  left_join(nbsp_tot) %>% 
+  left_join(mois_tonte)
+
+
+bota_80q <- read.csv(file="D:/Mes Donnees/Donnees_these/Donnees_Lea/Data_op/pheno_releve_bota_80q.csv",sep=";")
+
+bota_80q_wide <- bota_80q %>% 
+ mutate(species = str_replace(species," ", "_"))  %>% 
+  pivot_wider(names_from = species,
+              values_from = cover_sp, 
+              values_fill = list(cover_sp = 0)) %>% 
+  mutate(ID_quadrat=paste(field,quadrat,sep="_")) %>% 
+  relocate(ID_quadrat)
+
+```
+
+# 1. Biodiversity indexes
+## 1.1. Flower cover
+```{r}
+full.model <- lmer(flo_cov_tot ~   pedoclim1  + pedoclim2 + mowing + N_dose + irrig + R_tot + T_min + nbsp_tot +(1| field), data=pheno_comm_80q, REML=F,na.action="na.fail")
+vif(full.model) # VIF de chaque variable > 6 donc ok
+dredge(full.model) #ns
+
+full.model <- lmer(flo_cov_tot ~  flower_area   + onset + duration + tot_FU + pollen_volume +nectar_sugar +  (1| field), data=pheno_funct_80q, REML=F,na.action="na.fail")
+vif(full.model) # VIF de chaque variable > 3 donc ok
+dredge(full.model) 
+best_model_tot <- lmer(flo_cov_tot ~ flower_area + nectar_sugar  + (1| field), data=pheno_funct_80q, na.action="na.fail")
+summary(best_model_tot)
+Anova(best_model_tot)
+r.squaredGLMM(best_model_tot)
+```
+Fixed effects:
+             Estimate Std. Error t value
+(Intercept)    13.687      3.129   4.374
+flower_area    -4.380      1.595  -2.746
+nectar_sugar    2.627      1.147   2.291
+
+Response: flo_cov_tot
+              Chisq Df Pr(>Chisq)   
+flower_area  7.5403  1   0.006033 **
+nectar_sugar 5.2490  1   0.021959 * 
+
+     R2m       R2c
+0.1847978 0.7201247
+
+
+## 1.2. Species richness of flowering plants
+```{r}
+full.model <- lmer(sp_richness ~  pedoclim1 + pedoclim2 + mowing + N_dose + irrig + R_tot + T_min+  (1| field), data=pheno_comm_80q, REML=F,na.action="na.fail")
+vif(full.model) # VIF de chaque variable > 6 donc ok
+dredge(full.model) 
+best_model_tot <- lmer(sp_richness ~ pedoclim2 + mowing  + (1| field), data=pheno_comm_80q, na.action="na.fail")
+summary(best_model_tot)
+Anova(best_model_tot)
+r.squaredGLMM(best_model_tot)
+```
+
+Fixed effects:
+            Estimate Std. Error t value
+(Intercept)   4.7665     1.1911   4.002
+pedoclim2     0.7298     0.3216   2.269
+mowing        1.0210     0.4846   2.107
+
+Response: sp_richness
+           Chisq Df Pr(>Chisq)  
+pedoclim2 5.1491  1    0.02326 *
+mowing    4.4385  1    0.03514 *
+
+   R2m       R2c
+0.2265247 0.5611671
+
+
+
+### Figure : mowing
+
+```{r}
+theme_graphique<- theme(panel.border = element_blank(),
+                         panel.grid.major = element_blank(),
+                         panel.grid.minor = element_blank(),
+                         panel.background = element_blank(),
+                         axis.line = element_line(colour = "black"),
+                  strip.background=element_rect(colour="grey",fill="white"))
+
+
+
+
+pheno_comm_80q_field <- pheno_comm_80q %>% 
+  dplyr::select(-X,-quadrat,-ID_quadrat) %>% 
+  group_by(field) %>% 
+  summarise_all(mean) 
+
+pheno_comm_80q_field$field <- factor(pheno_comm_80q_field$field, levels =c("P1","P2","P3","P4","P5","P6","P7","P8","P9","P10","P11","P12","P13","P14","P15","P16"))
+```
+
+
+```{r}
+ggplot(pheno_comm_80q_field, aes(y=sp_richness, x=mowing,
+                          label=field,
+                          col=field)) +
+  geom_point(size=4,shape=18) +
+labs(x="Mean mowing events per year", y = "Species richness") +
+  theme(axis.text=element_text(size=16),
+        axis.title=element_text(size=20))+
+  theme(legend.title = element_text(size=18),
+        legend.text = element_text(size=12))+
+  theme_graphique +
+  #scale_color_manual(values=c("P1"="darkorchid4","P2"="darkorchid1","P3"="hotpink2","P4"="indianred","P5"="orangered","P6"="orange1","P7"="orange4","P8"="darkseagreen4","P9"="aquamarine3","P10"="springgreen3","P11"="darkgreen","P12"="royalblue","P13"="blue","P14"="steelblue1","P15"="slategrey","P16"="gray19"))
+  #scale_color_manual(values=c("P1"="gray16","P2"="gray21","P3"="gray26","P4"="gray31","P5"="gray36","P6"="gray41","P7"="gray46","P8"="gray51","P9"="gray56","P10"="gray61","P11"="gray66","P12"="gray71","P13"="gray76","P14"="gray81","P15"="gray86","P16"="gray91"))
+  scale_color_manual(values=c("P1"="indianred","P2"="indianred1","P3"="indianred4","P4"="maroon","P5"="maroon2","P6"="maroon4","P7"="mediumorchid4","P8"="mediumpurple1","P9"="mediumpurple4","P10"="purple4","P11"="slateblue4","P12"="royalblue3","P13"="blue","P14"="steelblue1","P15"="slategrey","P16"="gray19"))
+```
+
+
+### Figure : pedoclim2
+```{r}
+ggplot(pheno_comm_80q_field, aes(x=pedoclim2, y=sp_richness,
+                          label=field,
+                          col=field)) +
+  geom_point(size=4,shape=18) +
+labs(x="Second PCA axis", y = "Species richness")+
+ theme(axis.text=element_text(size=15),axis.title=element_text(size=20)) +
+  theme(axis.text=element_text(size=16),
+        axis.title=element_text(size=20))+
+  theme(legend.title = element_text(size=18),
+        legend.text = element_text(size=12))+
+  theme_graphique  + scale_color_manual(values=c("P1"="indianred","P2"="indianred1","P3"="indianred4","P4"="maroon","P5"="maroon2","P6"="maroon4","P7"="mediumorchid4","P8"="mediumpurple1","P9"="mediumpurple4","P10"="purple4","P11"="slateblue4","P12"="royalblue3","P13"="blue","P14"="steelblue1","P15"="slategrey","P16"="gray19"))
+```
+
+
+
+## 1.3. Nbre total d'espèces par parcelle
+```{r}
+moy_abiot <- pheno_comm_80q %>% 
+  dplyr::select(field, nbsp_tot, pedoclim1 , pedoclim2, mowing , N_dose , irrig, R_tot , T_min) %>% 
+  group_by(field) %>% 
+  summarise_all(mean)
+
+m <- lm(nbsp_tot ~ pedoclim1 + pedoclim2 + mowing + N_dose + irrig+ R_tot + T_min ,data= moy_abiot)
+summary(m) #ns
+
+
+cor.test(moy_abiot$nbsp_tot,moy_abiot$pedoclim1)
+cor.test(moy_abiot$nbsp_tot,moy_abiot$pedoclim2)
+cor.test(moy_abiot$nbsp_tot,moy_abiot$mowing)
+cor.test(moy_abiot$nbsp_tot,moy_abiot$N_dose)
+cor.test(moy_abiot$nbsp_tot,moy_abiot$irrig)
+cor.test(moy_abiot$nbsp_tot,moy_abiot$R_tot)
+cor.test(moy_abiot$nbsp_tot,moy_abiot$T_min)
+
+```
+
+
+# 2. Correlation of indicators of plant presence and quantity
+```{r}
+library(psych)
+ind <- pheno_comm_80q %>% 
+  dplyr::select(ID_quadrat,pic_flo,date_j,aire,duree_pic) %>% 
+  column_to_rownames("ID_quadrat")
+
+cor <- corr.test(ind,ind,use="pairwise",method="pearson",adjust="bonferroni")
+cor$p.adj
+cor$r
+```
+
+cor$p.adj
+               pic_flo     date_j         aire  duree_pic
+pic_flo   0.000000e+00 1.00000000 3.195608e-34 1.00000000
+date_j    1.000000e+00 0.00000000 1.000000e+00 0.04046718
+aire      3.195608e-34 1.00000000 0.000000e+00 1.00000000
+duree_pic 1.000000e+00 0.04046718 1.000000e+00 0.00000000
+
+cor$r
+              pic_flo       date_j       aire   duree_pic
+pic_flo   1.000000000  0.008436099  0.9290531  0.04749722
+date_j    0.008436099  1.000000000 -0.1236906 -0.35303749
+aire      0.929053086 -0.123690646  1.0000000  0.21273928
+duree_pic 0.047497222 -0.353037486  0.2127393  1.00000000
+
+Signif : 
+pic flo / aire : 0.93 p < 0.0001 --> Plus le pic est haut plus l'aire sous la courbe est grande
+durée pic / date_j : -0.35 p = 0.04 --> Plus la date du pic est précoce plus le pic 80% dure longtemps 
+
+Par contre pas de lien entre la durée ou la précocité et la quantité/hauteur du pic de fleurs
+
+
+
+# 3. CWM des traits
+## 3.1. Pollen volume
+```{r}
+full.model <- lmer(pollen_volume ~  pedoclim1 + pedoclim2 + mowing + N_dose + irrig + R_tot + T_min+ (1| field), data=pheno_funct_80q, REML=F,na.action="na.fail")
+vif(full.model) # VIF de chaque variable > 8 donc ok
+dredge(full.model)
+best_model_tot <- lmer(pollen_volume ~  pedoclim2 +  (1| field), data=pheno_funct_80q, na.action="na.fail")
+summary(best_model_tot)
+Anova(best_model_tot)
+r.squaredGLMM(best_model_tot)
+```
+
+Fixed effects:
+            Estimate Std. Error t value
+(Intercept)  0.30868    0.09323   3.311
+pedoclim2    0.10536    0.04795   2.197
+
+Response: pollen_volume
+             Chisq Df Pr(>Chisq)   
+pedoclim2 4.8288  1    0.02799 *
+
+     R2m       R2c
+0.1193714 0.1473409
+
+
+### Figure : pedoclim1
+
+```{r}
+theme_graphique<- theme(panel.border = element_blank(),
+                         panel.grid.major = element_blank(),
+                         panel.grid.minor = element_blank(),
+                         panel.background = element_blank(),
+                         axis.line = element_line(colour = "black"),
+                  strip.background=element_rect(colour="grey",fill="white"))
+
+
+
+pheno_funct_80q_field <- pheno_funct_80q %>% 
+  dplyr::select(-quadrat,-ID_quadrat) %>% 
+  group_by(field) %>% 
+  summarise_all(mean) 
+
+cor.test(pheno_funct_80q$date_j,pheno_funct_80q$flower_area)
+
+pheno_funct_80q_field$field <- factor(pheno_funct_80q_field$field, levels =c("P2","P3","P4","P5","P6","P7","P8","P9","P10","P12","P13","P14","P16"))
+
+pheno_funct_80q$field
+```
+
+
+```{r}
+ggplot(pheno_funct_80q_field, aes(x=pedoclim2, y=pollen_volume,
+                          label=field,
+                          col=field)) +
+  geom_point(size=4,shape=18) +
+labs(x="Second PCA axis", y = "Mean CWM pollen volume")+
+ theme(axis.text=element_text(size=15),axis.title=element_text(size=20)) +
+  theme(axis.text=element_text(size=16),
+        axis.title=element_text(size=20))+
+  theme(legend.title = element_text(size=18),
+        legend.text = element_text(size=12))+
+  theme_graphique + scale_color_manual(values=c("P2"="gray21","P3"="gray26","P4"="gray31","P5"="gray36","P6"="gray41","P7"="gray46","P8"="gray51","P9"="gray56","P10"="gray61","P12"="gray71","P13"="gray76","P14"="gray81","P16"="gray91"))+
+   scale_y_continuous(trans='log2')
+```
+
+
+
+### Richesses spé
+
+```{r}
+full.model <- lmer(pollen_volume ~  nbsp_tot + sp_richness + (1| field), data=pheno_funct_80q, REML=F,na.action="na.fail")
+vif(full.model) # VIF de chaque variable > 2 donc ok
+dredge(full.model)
+best_model_tot <- lmer(pollen_volume ~ sp_richness  +  (1| field), data=pheno_funct_80q, na.action="na.fail")
+summary(best_model_tot)
+Anova(best_model_tot)
+r.squaredGLMM(best_model_tot)
+```
+
+Fixed effects:
+            Estimate Std. Error t value
+(Intercept) -0.11199    0.20939  -0.535
+sp_richness  0.06777    0.02850   2.378
+
+Response: pollen_volume
+             Chisq Df Pr(>Chisq)  
+sp_richness 5.6537  1    0.01742 *
+
+     R2m       R2c
+0.1337971 0.1985912
+
+
+## 3.2. Nectar sugar content
+```{r}
+full.model <- lmer(nectar_sugar ~  pedoclim1 + pedoclim2 + mowing + N_dose + irrig + R_tot + T_min +  (1| field), data=pheno_funct_80q, REML=F,na.action="na.fail")
+vif(full.model) # VIF de chaque variable > 8 donc ok
+dredge(full.model) 
+best_model_tot <- lmer(nectar_sugar ~ irrig   + (1| field), data=pheno_funct_80q, na.action="na.fail")
+summary(best_model_tot)
+Anova(best_model_tot)
+r.squaredGLMM(best_model_tot)
+```
+Fixed effects:
+            Estimate Std. Error t value
+(Intercept) 0.984457   0.275897   3.568
+irrig       0.013626   0.004846   2.812
+
+Response: nectar_sugar
+        Chisq Df Pr(>Chisq)   
+irrig 7.9073  1   0.004924 **
+
+   R2m       R2c
+0.2532507 0.5020976
+
+
+
+### Figure : irrig
+```{r}
+ggplot(pheno_funct_80q_field, aes(y=nectar_sugar, x=irrig,
+                          col=field,
+                          label=field)) +
+  geom_point(size=4,shape=18) +
+labs(y="Mean CWM nectar sugar content", x = "Irrigation per yearc(mm)")+
+  theme(axis.text=element_text(size=16),
+        axis.title=element_text(size=20))+
+ # theme(legend.title = element_text(size=18),
+ #       legend.text = element_text(size=12))+
+  theme_graphique + 
+  scale_color_manual(values=c("P2"="indianred1","P3"="indianred4","P4"="maroon","P5"="maroon2","P6"="maroon4","P7"="mediumorchid4","P8"="mediumpurple1","P9"="mediumpurple4","P10"="purple4","P12"="royalblue3","P13"="blue","P14"="steelblue1","P16"="gray19"))+
+  scale_y_continuous(trans='log2')
+```
+
+### Richesses spé
+
+```{r}
+full.model <- lmer(nectar_sugar ~  nbsp_tot + sp_richness + (1| field), data=pheno_funct_80q, REML=F,na.action="na.fail")
+vif(full.model) # VIF de chaque variable > 2 donc ok
+dredge(full.model)
+best_model_tot <- lmer(nectar_sugar ~ sp_richness  +  (1| field), data=pheno_funct_80q, na.action="na.fail")
+summary(best_model_tot)
+Anova(best_model_tot)
+r.squaredGLMM(best_model_tot)
+```
+
+Fixed effects:
+            Estimate Std. Error t value
+(Intercept) -0.10141    0.44374  -0.229
+sp_richness  0.22386    0.05538   4.042
+
+Response: nectar_sugar
+             Chisq Df Pr(>Chisq)    
+sp_richness 16.342  1  5.289e-05 ***
+
+     R2m       R2c
+0.2970125 0.6101484
+
+
+## 3.3. Total number of floral units
+```{r}
+full.model <- lmer(tot_FU ~  pedoclim1 + pedoclim2 + mowing + N_dose + irrig + R_tot + T_min + (1| field), data=pheno_funct_80q, REML=F,na.action="na.fail")
+vif(full.model) # VIF de chaque variable > 8 donc ok
+dredge(full.model) 
+best_model_tot <- lmer(tot_FU ~ irrig + N_dose + T_min  + (1| field), data=pheno_funct_80q, na.action="na.fail")
+summary(best_model_tot)
+Anova(best_model_tot)
+r.squaredGLMM(best_model_tot)
+```
+
+Fixed effects:
+            Estimate Std. Error t value
+(Intercept) 133.2222    50.4562   2.640
+irrig         1.7478     0.5582   3.131
+N_dose        0.8192     0.1653   4.956
+T_min        91.0639    27.7263   3.284
+
+Response: tot_FU
+            Chisq Df Pr(>Chisq)    
+irrig   9.8048  1   0.001741 ** 
+N_dose 24.5579  1  7.211e-07 ***
+T_min  10.7872  1   0.001022 ** 
+
+    2m       R2c
+0.596888 0.596888
+
+
+### Figure : N_dose
+```{r}
+ggplot(pheno_funct_80q_field, aes(y=tot_FU, x=N_dose,
+                          label=field,
+                          col=field)) +
+  geom_point(size=4,shape=18) +
+labs(y="Mean CWM total floral units", x = "Applied nitrogen quantity")+
+  theme(axis.text=element_text(size=16),
+        axis.title=element_text(size=20))+
+  theme(legend.title = element_text(size=18),
+        legend.text = element_text(size=12))+
+  theme_graphique + 
+  scale_color_manual(values=c("P2"="indianred1","P3"="indianred4","P4"="maroon","P5"="maroon2","P6"="maroon4","P7"="mediumorchid4","P8"="mediumpurple1","P9"="mediumpurple4","P10"="purple4","P12"="royalblue3","P13"="blue","P14"="steelblue1","P16"="gray19"))+
+   scale_x_continuous(trans='log2')
+```
+
+
+### Figure : irrig
+```{r}
+ggplot(pheno_funct_80q_field, aes(y=tot_FU, x=irrig,
+                          label=field,
+                          col=field)) +
+  geom_point(size=4,shape=18) +
+labs(y="Mean CWM total floral units", x = "Mean irrigation quantity per year (mm)")+
+  theme(axis.text=element_text(size=16),
+        axis.title=element_text(size=20))+
+  theme(legend.title = element_text(size=18),
+        legend.text = element_text(size=12))+
+  theme_graphique + 
+  scale_color_manual(values=c("P2"="indianred1","P3"="indianred4","P4"="maroon","P5"="maroon2","P6"="maroon4","P7"="mediumorchid4","P8"="mediumpurple1","P9"="mediumpurple4","P10"="purple4","P12"="royalblue3","P13"="blue","P14"="steelblue1","P16"="gray19"))+
+   scale_x_continuous(trans='log2')
+```
+
+### Richesses spé
+
+```{r}
+full.model <- lmer(tot_FU ~  nbsp_tot + sp_richness + (1| field), data=pheno_funct_80q, REML=F,na.action="na.fail")
+vif(full.model) # VIF de chaque variable > 2 donc ok
+dredge(full.model)
+best_model_tot <- lmer(tot_FU ~ sp_richness  +  (1| field), data=pheno_funct_80q, na.action="na.fail")
+summary(best_model_tot)
+Anova(best_model_tot)
+r.squaredGLMM(best_model_tot)
+```
+
+Fixed effects:
+            Estimate Std. Error t value
+(Intercept)   313.24     107.19   2.922
+sp_richness    15.30      12.75   1.200
+
+Response: tot_FU
+             Chisq Df Pr(>Chisq)
+sp_richness 1.4402  1     0.2301
+
+    R2m       R2c
+0.03103912 0.5868006
+
+
+
+## 3.4. Flower area
+```{r}
+full.model <- lmer(flower_area ~  pedoclim1 + pedoclim2 + mowing + N_dose + irrig + R_tot + T_min + nbsp_tot + (1| field), data=pheno_funct_80q, REML=F,na.action="na.fail")
+vif(full.model) # VIF de chaque variable > 2 donc ok
+dredge(full.model) 
+best_model_tot <- lmer(flower_area ~ mowing  + (1| field), data=pheno_funct_80q, na.action="na.fail")
+summary(best_model_tot)
+Anova(best_model_tot)
+r.squaredGLMM(best_model_tot)
+```
+Fixed effects:
+            Estimate Std. Error t value
+(Intercept) -0.21081    0.19876  -1.061
+mowing       0.30563    0.08123   3.763
+
+Response: flower_area
+        Chisq Df Pr(>Chisq)    
+mowing 14.158  1  0.0001681 ***
+
+    R2m       R2c
+0.2663372 0.2663372
+
+### Figure : mowing
+```{r}
+ggplot(pheno_funct_80q_field, aes(y=flower_area, x=mowing,
+                          label=field,
+                          col=field)) +
+  geom_point(size=4,shape=18) +
+labs(y="Mean CWM floral area", x = "Mean number of mowing events per year")+
+  theme(axis.text=element_text(size=16),
+        axis.title=element_text(size=20))+
+  theme(legend.title = element_text(size=18),
+        legend.text = element_text(size=12))+
+  theme_graphique + 
+  scale_color_manual(values=c("P2"="indianred1","P3"="indianred4","P4"="maroon","P5"="maroon2","P6"="maroon4","P7"="mediumorchid4","P8"="mediumpurple1","P9"="mediumpurple4","P10"="purple4","P12"="royalblue3","P13"="blue","P14"="steelblue1","P16"="gray19"))+
+   scale_y_continuous(trans='log2')
+```
+
+
+### Richesses spé
+
+```{r}
+full.model <- lmer(flower_area ~  nbsp_tot + sp_richness + (1| field), data=pheno_funct_80q, REML=F,na.action="na.fail")
+vif(full.model) # VIF de chaque variable > 2 donc ok
+dredge(full.model) #ns
+```
+
+
+
+## 3.5. Reproductive height
+```{r}
+full.model <- lmer(repro_height ~  pedoclim1 + pedoclim2 + mowing + N_dose + irrig + R_tot + T_min  + nbsp_tot + sp_richness+ (1| field), data=pheno_funct_80q, REML=F,na.action="na.fail")
+vif(full.model) # VIF de chaque variable > 8 donc ok
+dredge(full.model) 
+best_model_tot <- lmer(repro_height ~ mowing  + (1| field), data=pheno_funct_80q, na.action="na.fail")
+summary(best_model_tot)
+Anova(best_model_tot)
+r.squaredGLMM(best_model_tot)
+```
+Fixed effects:
+            Estimate Std. Error t value
+(Intercept)   13.045      3.582   3.641
+mowing         3.117      1.446   2.156
+
+
+Response: repro_height
+        Chisq Df Pr(>Chisq)  
+mowing 4.6465  1    0.03112 *
+
+     R2m       R2c
+0.1182266 0.1663018
+
+
+### Figure : mowing
+```{r}
+ggplot(pheno_funct_80q_field, aes(y=repro_height, x=mowing,
+                          label=field,
+                          col=field)) +
+  geom_point(size=4,shape=18) +
+labs(y="Mean CWM reproductive height", x = "Mean number of mowing events per year")+
+  theme(axis.text=element_text(size=16),
+        axis.title=element_text(size=20))+
+  theme(legend.title = element_text(size=18),
+        legend.text = element_text(size=12))+
+  theme_graphique + 
+  scale_color_manual(values=c("P2"="indianred1","P3"="indianred4","P4"="maroon","P5"="maroon2","P6"="maroon4","P7"="mediumorchid4","P8"="mediumpurple1","P9"="mediumpurple4","P10"="purple4","P12"="royalblue3","P13"="blue","P14"="steelblue1","P16"="gray19"))
+```
+
+### Richesses spé
+
+```{r}
+full.model <- lmer(repro_height ~  nbsp_tot + sp_richness + (1| field), data=pheno_funct_80q, REML=F,na.action="na.fail")
+vif(full.model) # VIF de chaque variable > 2 donc ok
+dredge(full.model)
+best_model_tot <- lmer(repro_height ~ sp_richness  +  (1| field), data=pheno_funct_80q, na.action="na.fail")
+summary(best_model_tot)
+Anova(best_model_tot)
+r.squaredGLMM(best_model_tot)
+```
+
+Fixed effects:
+            Estimate Std. Error t value
+(Intercept)    9.705      3.718    2.61
+sp_richness    1.519      0.515    2.95
+
+
+Response: repro_height
+             Chisq Df Pr(>Chisq)   
+sp_richness 8.7005  1   0.003181 **
+
+     R2m       R2c
+0.1823988 0.1823988
+
+
+## 3.6. Flowering onset
+```{r}
+full.model <- lmer(onset ~  pedoclim1 + pedoclim2 + mowing + N_dose + irrig + R_tot + T_min + (1| field), data=pheno_funct_80q, REML=F,na.action="na.fail")
+vif(full.model) # VIF de chaque variable > 8 donc ok
+dredge(full.model) 
+best_model_tot <- lmer(onset ~ irrig + mowing + N_dose  + T_min + (1| field), data=pheno_funct_80q, na.action="na.fail")
+summary(best_model_tot)
+Anova(best_model_tot)
+r.squaredGLMM(best_model_tot)
+```
+Fixed effects:
+             Estimate Std. Error t value
+(Intercept) 1708.78568   42.92665  39.807
+irrig          1.48299    0.38762   3.826
+mowing       -44.29749   15.47023  -2.863
+N_dose        -0.64837    0.09251  -7.009
+T_min        -49.70031   16.32419  -3.045
+
+
+Response: onset
+         Chisq Df Pr(>Chisq)    
+irrig  14.6373  1  0.0001303 ***
+mowing  8.1991  1  0.0041912 ** 
+N_dose 49.1254  1  2.401e-12 ***
+T_min   9.2695  1  0.0023300 **
+
+     R2m       R2c
+0.6641817 0.6783951
+
+### Figure : N_dose
+```{r}
+ggplot(pheno_funct_80q_field, aes(y=onset, x=N_dose,
+                          label=field,
+                          col=field)) +
+  geom_point(size=4,shape=18) +
+labs(y="Mean CWM of flowering onset", x = "Applied nitrogen quantity")+
+  theme(axis.text=element_text(size=16),
+        axis.title=element_text(size=20))+
+  theme(legend.title = element_text(size=18),
+        legend.text = element_text(size=12))+
+  theme_graphique + 
+  scale_color_manual(values=c("P2"="indianred1","P3"="indianred4","P4"="maroon","P5"="maroon2","P6"="maroon4","P7"="mediumorchid4","P8"="mediumpurple1","P9"="mediumpurple4","P10"="purple4","P12"="royalblue3","P13"="blue","P14"="steelblue1","P16"="gray19"))+
+   scale_x_continuous(trans='log2')
+```
+
+### Figure : mowing
+```{r}
+ggplot(pheno_funct_80q_field, aes(y=onset, x=mowing,
+                          label=field,
+                          col=field)) +
+  geom_point(size=4,shape=18) +
+labs(y="Mean CWM flowering onset", x = "Mean number of mowing events per year")+
+  theme(axis.text=element_text(size=16),
+        axis.title=element_text(size=20))+
+  theme(legend.title = element_text(size=18),
+        legend.text = element_text(size=12))+
+  theme_graphique + 
+  scale_color_manual(values=c("P2"="indianred1","P3"="indianred4","P4"="maroon","P5"="maroon2","P6"="maroon4","P7"="mediumorchid4","P8"="mediumpurple1","P9"="mediumpurple4","P10"="purple4","P12"="royalblue3","P13"="blue","P14"="steelblue1","P16"="gray19"))+
+   scale_x_continuous(trans='log2')
+```
+
+### Figure : irrig
+```{r}
+ggplot(pheno_funct_80q_field, aes(y=onset, x=irrig,
+                          label=field,
+                          col=field)) +
+  geom_point(size=4,shape=18) +
+labs(y="Mean CWM flowering onset", x = "Mean irrigation quantity per year (mm)")+
+  theme(axis.text=element_text(size=16),
+        axis.title=element_text(size=20))+
+  theme(legend.title = element_text(size=18),
+        legend.text = element_text(size=12))+
+  theme_graphique + 
+  scale_color_manual(values=c("P2"="indianred1","P3"="indianred4","P4"="maroon","P5"="maroon2","P6"="maroon4","P7"="mediumorchid4","P8"="mediumpurple1","P9"="mediumpurple4","P10"="purple4","P12"="royalblue3","P13"="blue","P14"="steelblue1","P16"="gray19"))+
+   scale_x_continuous(trans='log2')
+```
+
+### Figure : irrig
+```{r}
+ggplot(pheno_funct_80q_field, aes(y=onset, x=T_min,
+                          label=field,
+                          col=field)) +
+  geom_point(size=4,shape=18) +
+labs(y="Mean CWM flowering onset", x = "Minimal year temperature (°C)")+
+  theme(axis.text=element_text(size=16),
+        axis.title=element_text(size=20))+
+  theme(legend.title = element_text(size=18),
+        legend.text = element_text(size=12))+
+  theme_graphique + 
+  scale_color_manual(values=c("P2"="indianred1","P3"="indianred4","P4"="maroon","P5"="maroon2","P6"="maroon4","P7"="mediumorchid4","P8"="mediumpurple1","P9"="mediumpurple4","P10"="purple4","P12"="royalblue3","P13"="blue","P14"="steelblue1","P16"="gray19"))
+```
+
+
+### Richesses spé
+
+```{r}
+full.model <- lmer(onset ~  nbsp_tot + sp_richness + (1| field), data=pheno_funct_80q, REML=F,na.action="na.fail")
+vif(full.model) # VIF de chaque variable > 2 donc ok
+dredge(full.model) # ns
+```
+
+## 3.7. Flowering duration
+```{r}
+full.model <- lmer(duration ~  pedoclim1 + pedoclim2 + mowing + N_dose + irrig  + R_tot + T_min + (1| field), data=pheno_funct_80q, REML=F,na.action="na.fail")
+vif(full.model) # VIF de chaque variable > 8 donc ok
+dredge(full.model) 
+best_model_tot <- lmer(duration ~ N_dose   + irrig + (1| field), data=pheno_funct_80q, na.action="na.fail")
+summary(best_model_tot)
+Anova(best_model_tot)
+r.squaredGLMM(best_model_tot)
+```
+Fixed effects:
+             Estimate Std. Error t value
+(Intercept) 1014.7218    21.3847  47.451
+N_dose        -0.2795     0.1019  -2.743
+irrig          0.7936     0.3404   2.331
+
+Response: duration
+        Chisq Df Pr(>Chisq)  
+N_dose 7.5247  1   0.006086 **
+irrig  5.4337  1   0.019751 * 
+
+    R2m       R2c
+0.227943 0.227943
+
+
+### Figure : N_dose
+```{r}
+ggplot(pheno_funct_80q_field, aes(y=duration, x=N_dose,
+                          label=field,
+                          col=field)) +
+  geom_point(size=4,shape=18) +
+labs(y="Mean CWM of flowering duration", x = "Applied nitrogen quantity")+
+  theme(axis.text=element_text(size=16),
+        axis.title=element_text(size=20))+
+  theme(legend.title = element_text(size=18),
+        legend.text = element_text(size=12))+
+  theme_graphique + 
+  scale_color_manual(values=c("P2"="indianred1","P3"="indianred4","P4"="maroon","P5"="maroon2","P6"="maroon4","P7"="mediumorchid4","P8"="mediumpurple1","P9"="mediumpurple4","P10"="purple4","P12"="royalblue3","P13"="blue","P14"="steelblue1","P16"="gray19"))+
+   scale_x_continuous(trans='log2')
+```
+
+### Richesses spé
+
+```{r}
+full.model <- lmer(duration ~  nbsp_tot + sp_richness + (1| field), data=pheno_funct_80q, REML=F,na.action="na.fail")
+vif(full.model) # VIF de chaque variable > 2 donc ok
+dredge(full.model) #ns
+```
+
+## 3.8. Relationships between CWMs and flower cover
+```{r}
+cor.test(pheno_funct_80q$flo_cov_tot,pheno_funct_80q$pollen_volume) #ns
+cor.test(pheno_funct_80q$flo_cov_tot,pheno_funct_80q$nectar_sugar) #ns
+cor.test(pheno_funct_80q$flo_cov_tot,pheno_funct_80q$tot_FU) #ns
+cor.test(pheno_funct_80q$flo_cov_tot,pheno_funct_80q$flower_area) # -0.3117 p = 0.05025
+cor.test(pheno_funct_80q$flo_cov_tot,pheno_funct_80q$repro_height) # -0.2665883 p = 0.09635
+cor.test(pheno_funct_80q$flo_cov_tot,pheno_funct_80q$onset) # ns
+cor.test(pheno_funct_80q$flo_cov_tot,pheno_funct_80q$duration) # -0.3261504 p = 0.03999
+
+full.model <- lmer(flo_cov_tot ~  flower_area + repro_height  + duration +(1| field), data=pheno_funct_80q, REML=F,na.action="na.fail")
+vif(full.model) # VIF de chaque variable > 3.5 donc ok
+dredge(full.model) 
+best_model_tot <- lmer(flo_cov_tot ~ flower_area  + (1| field), data=pheno_funct_80q, na.action="na.fail")
+summary(best_model_tot)
+Anova(best_model_tot)
+r.squaredGLMM(best_model_tot)
+```
+Fixed effects:
+            Estimate Std. Error t value
+(Intercept)   18.029      2.626   6.866
+flower_area   -5.865      1.537  -3.817
+
+Response: flo_cov_tot
+             Chisq Df Pr(>Chisq)    
+flower_area 14.569  1  0.0001351 ***
+
+    R2m       R2c
+0.1557633 0.7102981
+
+## 3.9. Corrélations entre traits
+```{r}
+library(psych)
+library(tidyverse)
+cwm <- pheno_funct_80q %>%
+  dplyr::select(field,ID_quadrat,19:25) %>% 
+  #group_by(field) %>% 
+  #summarise_all(mean)
+  column_to_rownames("ID_quadrat")
+
+
+cor <- corr.test(cwm,cwm,use="pairwise",method="pearson",adjust="bonferroni")
+cor$p.adj
+cor$r
+```
+
+```{r}
+ggplot(cwm, aes(y=flower_area, x=duration,
+                          label=field,
+                          col=field)) +
+  geom_point(size=4,shape=18) +
+labs(y="Mean CWM floral area", x = "Mean CWM of flowering duration")+
+  theme(axis.text=element_text(size=16),
+        axis.title=element_text(size=20))+
+  theme(legend.title = element_text(size=18),
+        legend.text = element_text(size=12))+
+  theme_graphique + 
+  scale_color_manual(values=c("P2"="indianred1","P3"="indianred4","P4"="maroon","P5"="maroon2","P6"="maroon4","P7"="mediumorchid4","P8"="mediumpurple1","P9"="mediumpurple4","P10"="purple4","P12"="royalblue3","P13"="blue","P14"="steelblue1","P16"="gray19"))+
+   scale_y_continuous(trans='log2')
+```
+
+
+
+# 4. CWV des traits
+```{r}
+sd(pheno_funct_cwv_poll$CWV_pollen_volume)
+
+```
+
+
+
+## 4.1. Pollen volume
+```{r}
+pheno_funct_cwv_poll <- pheno_funct_80q %>% 
+  dplyr::select(ID_quadrat,field, pedoclim1 , pedoclim2 , mowing , N_dose , irrig , R_tot , T_min, CWV_pollen_volume) %>% 
+  drop_na()
+
+full.model <- lmer(CWV_pollen_volume ~  pedoclim1 + pedoclim2 + mowing + N_dose + irrig + R_tot + T_min+ (1| field), data=pheno_funct_cwv_poll, REML=F,na.action="na.fail")
+vif(full.model) # VIF de chaque variable < 6 donc ok
+dredge(full.model)
+best_model_tot <- lmer(CWV_pollen_volume ~  R_tot +  (1| field), data=pheno_funct_cwv_poll, na.action="na.fail")
+summary(best_model_tot)
+Anova(best_model_tot)
+r.squaredGLMM(best_model_tot)
+```
+Fixed effects:
+             Estimate Std. Error t value
+(Intercept) -7.393718   2.613904  -2.829
+R_tot        0.016275   0.004798   3.392
+
+Response: CWV_pollen_volume
+       Chisq Df Pr(>Chisq)    
+R_tot 11.505  1  0.0006939 ***
+
+    R2m       R2c
+0.2644614 0.2644614
+
+
+## 4.2. Nectar sugar content
+```{r}
+full.model <- lmer(CWV_nectar_sugar ~  pedoclim1 + pedoclim2 + mowing + N_dose + irrig + R_tot + T_min+ (1| field), data=pheno_funct_80q, REML=F,na.action="na.fail")
+vif(full.model) # VIF de chaque variable < 8 donc ok
+dredge(full.model) #ns
+```
+
+
+## 4.3. Total number of FU
+```{r}
+full.model <- lmer(CWV_tot_FU ~  pedoclim1 + pedoclim2 + mowing + N_dose + irrig + R_tot + T_min+ (1| field), data=pheno_funct_80q, REML=F,na.action="na.fail")
+vif(full.model) # VIF de chaque variable < 8 donc ok
+dredge(full.model)
+best_model_tot <- lmer(CWV_tot_FU ~  pedoclim2 +  (1| field), data=pheno_funct_80q, na.action="na.fail")
+summary(best_model_tot)
+Anova(best_model_tot)
+r.squaredGLMM(best_model_tot)
+```
+Fixed effects:
+            Estimate Std. Error t value
+(Intercept)    91416      21478   4.256
+pedoclim2      34902      11320   3.083
+
+Response: CWV_tot_FU
+          Chisq Df Pr(>Chisq)   
+pedoclim2 9.507  1   0.002047 **
+
+     R2m       R2c
+0.2796764 0.4297087
+
+## 4.4. Flower area
+```{r}
+full.model <- lmer(CWV_flower_area ~  pedoclim1 + pedoclim2 + mowing + N_dose + irrig + R_tot + T_min+ (1| field), data=pheno_funct_80q, REML=F,na.action="na.fail")
+vif(full.model) # VIF de chaque variable < 8 donc ok
+dredge(full.model)
+best_model_tot <- lmer(CWV_flower_area ~  mowing + N_dose + (1| field), data=pheno_funct_80q, na.action="na.fail")
+summary(best_model_tot)
+Anova(best_model_tot)
+r.squaredGLMM(best_model_tot)
+```
+Fixed effects:
+            Estimate Std. Error t value
+(Intercept) -0.396950   0.394077  -1.007
+mowing       0.723598   0.156287   4.630
+N_dose      -0.002779   0.001157  -2.402
+
+Response: CWV_flower_area
+         Chisq Df Pr(>Chisq)    
+mowing 21.4363  1  3.658e-06 ***
+N_dose  5.7715  1    0.01629 *  
+
+    R2m       R2c
+0.3935368 0.3935368
+
+## 4.5. Reproductive height
+```{r}
+full.model <- lmer(CWV_repro_height ~  pedoclim1 + pedoclim2 + mowing + N_dose + irrig + R_tot + T_min+ (1| field), data=pheno_funct_80q, REML=F,na.action="na.fail")
+vif(full.model) # VIF de chaque variable < 8 donc ok
+dredge(full.model) ns
+```
+
+
+## 4.6. Flowering duration
+```{r}
+full.model <- lmer(CWV_duration ~  pedoclim1 + pedoclim2 + mowing + N_dose + irrig + R_tot + T_min+ (1| field), data=pheno_funct_80q, REML=F,na.action="na.fail")
+vif(full.model) # VIF de chaque variable < 8 donc ok
+dredge(full.model) # ns
+```
+
+## 4.7. Flowering onset
+```{r}
+full.model <- lmer(CWV_onset ~  pedoclim1 + pedoclim2 + mowing + N_dose + irrig + R_tot + T_min+ (1| field), data=pheno_funct_80q, REML=F,na.action="na.fail")
+vif(full.model) # VIF de chaque variable < 8 donc ok
+dredge(full.model)
+best_model_tot <- lmer(CWV_onset ~  irrig + mowing + pedoclim1 + T_min + (1| field), data=pheno_funct_80q, na.action="na.fail")
+summary(best_model_tot)
+Anova(best_model_tot)
+r.squaredGLMM(best_model_tot)
+```
+Fixed effects:
+            Estimate Std. Error t value
+(Intercept) -38178.75   12568.69  -3.038
+irrig         -294.14      91.53  -3.213
+mowing       13740.79    3624.65   3.791
+pedoclim1    -7368.13    2478.39  -2.973
+T_min        28940.65    6064.28   4.772
+
+Response: CWV_onset
+            Chisq Df Pr(>Chisq)    
+irrig     10.3261  1  0.0013116 ** 
+mowing    14.3711  1  0.0001501 ***
+pedoclim1  8.8384  1  0.0029495 ** 
+T_min     22.7750  1  1.821e-06 ***
+
+    R2m       R2c
+0.4406691 0.4406691
+
+
+
+# 5. Botanical effect
+
+## 5.1. More frequent species
+```{r}
+freq_sp <- bota_80q %>% 
+  group_by(species) %>% 
+  summarise(freq_spec = sum(cover_sp))
+
+
+bota_80q_wide <- bota_80q %>% 
+mutate(ID_quadrat=paste(field,quadrat,sep="_"))  %>% 
+  dplyr::select(-field,-quadrat) %>% 
+  pivot_wider(names_from = species,
+              values_from = cover_sp, 
+              values_fill = list(cover_sp = 0))
+
+flo_cov <- pheno_comm_80q %>% 
+  dplyr::select(ID_quadrat,field,quadrat,flo_cov_tot)
+
+bota_80q_wide_flo_cov <- bota_80q_wide %>% 
+  left_join(flo_cov) %>% 
+  left_join(pheno_funct_80q) %>% 
+  relocate(ID_quadrat, field, quadrat,flo_cov_tot) %>% 
+  rename("Med_min" =  "Medicago minima",
+         "Cre_san" = "Crepis sancta",
+         "Are_ser" = "Arenaria serpyllifolia",
+         "She_arv" = "Sherardia arvensis",
+         "Med_ara" = "Medicago arabica",
+         "Cli_nep" = "Clinopodium nepeta", 
+         "Ger_mol" = "Geranium molle",
+         "Cer_glo" = "Cerastium glomeratum",
+         "Med_pol" = "Medicago polymorpha",
+         "Pla_lan" = "Plantago lanceolata",
+         "Ver_per" = "Veronica persica",
+         "Med_rig" = "Medicago rigidula",
+         "Mal_syl" = "Malva sylvestris",
+         "Car_pyc" = "Carduus pycnocephalus",
+         "Tor_nod" = "Torilis nodosa",
+         "Tri_cam"= "Trifolium campestre",
+         "Ger_dis" = "Geranium dissectum",
+         "San_min" = "Sanguisorba minor",
+         "Sen_vul" = "Senecio vulgaris",
+         "Ger_rot" = "Geranium rotundifolium",
+         "Pic_hie" = "Picris hieracioides") %>% 
+  dplyr::select(-FDiv,-FRic,-RaoQ,-FEve, -X, -FDis) %>% 
+  drop_na()
+```
+
+## 5.2. Effect of frequent species on CWM of traits
+```{r}
+full.model <- lmer(flower_area ~  Med_min + She_arv  + Are_ser + Med_ara  + Ger_mol + Cer_glo + Med_pol + Pla_lan + Ver_per + Med_rig  + Car_pyc + Tor_nod + Tri_cam + Ger_dis + San_min + Sen_vul + Ger_rot + Pic_hie + (1| field), data=bota_80q_wide_flo_cov, REML=F,na.action="na.fail")
+vif(full.model) # VIF de chaque variable > 2 donc ok
+dredge(full.model) 
+best_model_tot <- lmer(flower_area ~ Are_ser + Ger_mol + Med_pol  + (1| field), data=bota_80q_wide_flo_cov, na.action="na.fail")
+summary(best_model_tot)
+Anova(best_model_tot)
+r.squaredGLMM(best_model_tot)
+```
+
+
+# 6. Pic floraison
+## 6.1. Date du pic
+### 6.1.1 Effet des conditions abiotiques
+```{r}
+pheno_comm_80q2 <- pheno_comm_80q %>% 
+  filter(date_j> 40) 
+
+full.model <- lmer(date_j ~  pedoclim1 + pedoclim2 + mowing + N_dose + irrig + R_tot + T_min+ (1| field), data=pheno_comm_80q2, REML=F,na.action="na.fail")
+vif(full.model) # VIF de chaque variable > 6 donc ok
+dredge(full.model) 
+best_model_tot <- lmer(date_j ~  pedoclim2 +(1| field), data=pheno_comm_80q2, na.action="na.fail")
+summary(best_model_tot)
+Anova(best_model_tot)
+r.squaredGLMM(best_model_tot)
+```
+Fixed effects:
+              Estimate Std. Error t value
+(Intercept) 220.456162   3.123925  70.570
+N_dose        0.009196   0.005056   1.819
+pedoclim2    -3.753723   1.638053  -2.292
+
+Response: date_j
+          Chisq Df Pr(>Chisq)  
+N_dose    3.3083  1    0.06893 .
+pedoclim2 5.2513  1    0.02193 *
+
+     R2m       R2c
+ 0.1296149 0.2034683
+
+
+### 6.1.2 Effet des traits
+```{r}
+full.model <- lmer(date_j ~ flower_area   + onset + duration + tot_FU + pollen_volume +nectar_sugar + (1| field), data=pheno_funct_80q, REML=F,na.action="na.fail")
+vif(full.model) # VIF de chaque variable > 8 donc ok
+dredge(full.model)
+best_model_tot <- lmer(date_j ~ flower_area + nectar_sugar  +  (1| field), data=pheno_funct_80q, na.action="na.fail")
+summary(best_model_tot)
+Anova(best_model_tot)
+r.squaredGLMM(best_model_tot)
+```
+
+Fixed effects:
+             Estimate Std. Error t value
+(Intercept)   225.807      2.565  88.033
+flower_area     4.999      2.134   2.342
+nectar_sugar   -3.481      1.212  -2.872
+
+Response: date_j
+               Chisq Df Pr(>Chisq)   
+flower_area  5.4871  1   0.019157 * 
+nectar_sugar 8.2471  1   0.004082 **
+
+     R2m       R2c
+0.275508 0.3372558
+
+
+Figure
+```{r}
+
+theme_graphique<- theme(panel.border = element_blank(),
+                         panel.grid.major = element_blank(),
+                         panel.grid.minor = element_blank(),
+                         panel.background = element_blank(),
+                         axis.line = element_line(colour = "black"),
+                  strip.background=element_rect(colour="grey",fill="white"))
+
+
+pheno_comm_80q2$field <- factor(pheno_comm_80q2$field, levels =c("P1","P2","P3","P4","P5","P6","P7","P8","P9","P10","P11","P12","P13","P14","P15","P16"))
+breaks <- c(1,10,20,30)
+
+
+ggplot(data= pheno_comm_80q2) + 
+  aes(x= field, y = date_j,colour=date_j) +
+   scale_colour_gradientn(colours = c("burlywood1","purple3"),breaks = breaks, labels = format(breaks))+
+  geom_jitter()+
+  geom_boxplot(alpha=0)+
+  theme_graphique +
+  labs(x="Field", y = "Flower peak")+
+  labs(fill = "Flower peak")+
+  theme_graphique +
+  theme(axis.text=element_text(size=16),
+        axis.title=element_text(size=20))+
+  theme(legend.title = element_text(size=20),
+        legend.text = element_text(size=14))
+```
+
+### 6.1.3. Effet des richesses spécifiques
+```{r}
+full.model <- lmer(date_j ~ sp_richness+ nbsp_tot+ (1| field), data=pheno_comm_80q, REML=F,na.action="na.fail")
+vif(full.model) # VIF de chaque variable > 8 donc ok
+dredge(full.model) 
+best_model_tot <- lmer(pic_flo ~ sp_richness +(1| field), data=pheno_comm_80q, na.action="na.fail")
+summary(best_model_tot)
+Anova(best_model_tot)
+r.squaredGLMM(best_model_tot)
+```
+
+### 6.1.4. Effet des CWV
+```{r}
+pheno_funct_log <- pheno_funct_80q %>% 
+  mutate(CWV_nectar_sugar=log(CWV_nectar_sugar+1) ,
+         CWV_tot_FU=log(CWV_tot_FU+1) ,
+         CWV_flower_area=log(CWV_flower_area+1) ,
+         CWV_repro_height=log(CWV_repro_height+1) ,
+         CWV_onset=log(CWV_onset+1) ,
+         CWV_duration=log(CWV_duration+1) )
+
+full.model <- lmer(date_j ~ CWV_nectar_sugar + CWV_tot_FU + CWV_flower_area + CWV_repro_height  + CWV_duration + (1| field), data=pheno_funct_log, REML=F,na.action="na.fail")
+vif(full.model) # VIF  > 15 donc j'enlève onset
+dredge(full.model) 
+best_model_tot <- lmer(pic_flo ~ CWV_nectar_sugar +(1| field), data=pheno_funct_log, na.action="na.fail")
+summary(best_model_tot)
+Anova(best_model_tot)#ns finalement both with nectar and onset
+r.squaredGLMM(best_model_tot)
+```
+
+## 6.2. Aire sous la courbe
+### 6.2.1. Effets des conditions abiotiques
+```{r}
+full.model <- lmer(aire ~  pedoclim1 + pedoclim2 + mowing + N_dose + irrig + R_tot + T_min+ (1| field), data=pheno_comm_80q, REML=F,na.action="na.fail")
+vif(full.model) # VIF de chaque variable > 6 donc ok
+dredge(full.model) # ns
+best_model_tot <- lmer(aire ~ sp_richness +(1| field), data=pheno_comm_80q, na.action="na.fail")
+summary(best_model_tot)
+Anova(best_model_tot)
+r.squaredGLMM(best_model_tot)
+```
+
+### 6.2.2. Effets des traits
+```{r}
+full.model <- lmer(aire ~  flower_area   + onset + duration + tot_FU + pollen_volume +nectar_sugar + (1| field), data=pheno_funct_80q, REML=F,na.action="na.fail")
+vif(full.model) # VIF de chaque variable > 5 donc ok
+dredge(full.model)
+best_model_tot <- lmer(aire ~   nectar_sugar+(1| field), data=pheno_funct_80q, na.action="na.fail")
+summary(best_model_tot)
+Anova(best_model_tot)
+r.squaredGLMM(best_model_tot)
+```
+Fixed effects:
+             Estimate Std. Error t value
+(Intercept)     94.81      29.71   3.191
+nectar_sugar    50.99      12.02   4.242
+
+Response: aire
+              Chisq Df Pr(>Chisq)   
+nectar_sugar 17.995  1  2.215e-05 ***
+
+     R2m       R2c
+0.2947179 0.6820686
+
+
+
+
+```{r}
+theme_graphique<- theme(panel.border = element_blank(),
+                         panel.grid.major = element_blank(),
+                         panel.grid.minor = element_blank(),
+                         panel.background = element_blank(),
+                         axis.line = element_line(colour = "black"),
+                  strip.background=element_rect(colour="grey",fill="white"))
+
+pheno_comm_80q$field <- factor(pheno_comm_80q$field, levels =c("P1","P2","P3","P4","P5","P6","P7","P8","P9","P10","P11","P12","P13","P14","P15","P16"))
+
+pheno_comm_80q <- pheno_comm_80q %>% 
+  group_by(field) %>% 
+  mutate(moy_aire=mean(aire),
+         moy_sp = mean(sp_richness))
+
+ggplot(pheno_comm_80q, aes(y=moy_aire, x=moy_sp)) +
+  geom_point(size=4,shape=18,col="mediumpurple4") +
+labs(x="Nombre d'espèces", y = "Aire sous la courbe") +
+  theme(axis.text=element_text(size=16),
+        axis.title=element_text(size=20))+
+  theme(legend.title = element_text(size=18),
+        legend.text = element_text(size=12))+
+  theme_graphique 
+```
+
+### 6.2.3. Effet des richesses spécifiques
+```{r}
+full.model <- lmer(aire ~ sp_richness+ nbsp_tot+ (1| field), data=pheno_comm_80q, REML=F,na.action="na.fail")
+vif(full.model) # VIF de chaque variable > 2 donc ok
+dredge(full.model) 
+best_model_tot <- lmer(aire ~ sp_richness +(1| field), data=pheno_comm_80q, na.action="na.fail")
+summary(best_model_tot)
+Anova(best_model_tot)
+r.squaredGLMM(best_model_tot)
+```
+Fixed effects:
+            Estimate Std. Error t value
+(Intercept)  -0.9404    39.2045  -0.024
+sp_richness  22.5613     4.6752   4.826
+
+Response: aire
+             Chisq Df Pr(>Chisq)    
+sp_richness 23.287  1  1.395e-06 ***
+
+     R2m       R2c
+0.2572443 0.5253007
+
+### 6.2.4. Effet des CWV
+```{r}
+pheno_funct_log <- pheno_funct_80q %>% 
+  mutate(CWV_nectar_sugar=log(CWV_nectar_sugar+1) ,
+         CWV_tot_FU=log(CWV_tot_FU+1) ,
+         CWV_flower_area=log(CWV_flower_area+1) ,
+         CWV_repro_height=log(CWV_repro_height+1) ,
+         CWV_onset=log(CWV_onset+1) ,
+         CWV_duration=log(CWV_duration+1) )
+
+full.model <- lmer(aire ~ CWV_nectar_sugar + CWV_tot_FU + CWV_flower_area + CWV_repro_height + CWV_nectar_sugar + CWV_duration + (1| field), data=pheno_funct_log, REML=F,na.action="na.fail")
+vif(full.model) # VIF de chaque variable > 2 donc ok
+dredge(full.model) #ns et avec onset
+```
+
+## 6.3. Hauteur du pic
+### 6.3.1 Effet des conditions abiotiques
+```{r}
+full.model <- lmer(pic_flo ~  pedoclim1 + pedoclim2 + mowing + N_dose + irrig + R_tot + T_min+ (1| field), data=pheno_comm_80q, REML=F,na.action="na.fail")
+vif(full.model) # VIF de chaque variable > 6 donc ok
+dredge(full.model) 
+best_model_tot <- lmer(pic_flo ~ sp_richness +(1| field), data=pheno_comm_80q, na.action="na.fail")
+summary(best_model_tot)
+Anova(best_model_tot)
+r.squaredGLMM(best_model_tot)
+```
+Fixed effects:
+            Estimate Std. Error t value
+(Intercept)   2.4426     1.8405   1.327
+sp_richness   0.7513     0.2124   3.537
+
+Response: pic_flo
+            Chisq Df Pr(>Chisq)    
+sp_richness 12.51  1  0.0004048 ***
+
+     R2m       R2c
+0.1478463 0.5284242
+
+
+### 6.3.2. Effets des traits
+```{r}
+full.model <- lmer(pic_flo ~  flower_area   + onset + duration + tot_FU + pollen_volume +nectar_sugar + (1| field), data=pheno_funct_80q, REML=F,na.action="na.fail")
+vif(full.model) # VIF de chaque variable > 5 donc ok
+dredge(full.model)
+best_model_tot <- lmer(pic_flo ~  nectar_sugar+(1| field), data=pheno_funct_80q, na.action="na.fail")
+summary(best_model_tot)
+Anova(best_model_tot)
+r.squaredGLMM(best_model_tot)
+```
+Fixed effects:
+             Estimate Std. Error t value
+(Intercept)     4.973      1.634   3.044
+nectar_sugar    2.599      0.585   4.442
+
+Response: pic_flo
+              Chisq Df Pr(>Chisq)   
+nectar_sugar 19.732  1   8.91e-06 ***
+
+    R2m       R2c
+0.2688504 0.760423
+
+### 6.3.3. Effet des richesses spécifiques
+```{r}
+full.model <- lmer(pic_flo ~ sp_richness+ nbsp_tot+ (1| field), data=pheno_comm_80q, REML=F,na.action="na.fail")
+vif(full.model) # VIF de chaque variable > 2 donc ok
+dredge(full.model) 
+best_model_tot <- lmer(pic_flo ~ sp_richness +(1| field), data=pheno_comm_80q, na.action="na.fail")
+summary(best_model_tot)
+Anova(best_model_tot)
+r.squaredGLMM(best_model_tot)
+```
+Fixed effects:
+            Estimate Std. Error t value
+(Intercept)   2.4426     1.8405   1.327
+sp_richness   0.7513     0.2124   3.537
+
+Response: pic_flo
+            Chisq Df Pr(>Chisq)    
+sp_richness 12.51  1  0.0004048 ***
+
+     R2m       R2c
+0.1478463 0.5284242
+
+### 6.3.4. Effet des CWV
+```{r}
+pheno_funct_log <- pheno_funct_80q %>% 
+  mutate(CWV_nectar_sugar=log(CWV_nectar_sugar+1) ,
+         CWV_tot_FU=log(CWV_tot_FU+1) ,
+         CWV_flower_area=log(CWV_flower_area+1) ,
+         CWV_repro_height=log(CWV_repro_height+1) ,
+         CWV_onset=log(CWV_onset+1) ,
+         CWV_duration=log(CWV_duration+1) )
+
+full.model <- lmer(pic_flo ~ CWV_nectar_sugar + CWV_tot_FU + CWV_flower_area + CWV_repro_height + CWV_duration + (1| field), data=pheno_funct_log, REML=F,na.action="na.fail")
+vif(full.model) # VIF > 15 donc j'enlève onset mais je l'ai testé et pas d'effet
+dredge(full.model) 
+best_model_tot <- lmer(pic_flo ~ CWV_nectar_sugar + CWV_duration +(1| field), data=pheno_funct_log, na.action="na.fail") 
+summary(best_model_tot)
+Anova(best_model_tot)
+r.squaredGLMM(best_model_tot)
+```
+Fixed effects:
+                 Estimate Std. Error t value
+(Intercept)       11.0959     2.4055   4.613
+CWV_nectar_sugar   2.8895     1.2544   2.303
+CWV_duration      -0.5878     0.2461  -2.389
+
+Response: pic_flo
+                  Chisq Df Pr(>Chisq)   
+CWV_nectar_sugar 5.3061  1    0.02125 *
+CWV_duration     5.7055  1    0.01691 *
+
+     R2m       R2c
+0.1371191 0.5520227
+
+
+
+## 6.4. Durée de floraison
+
+```{r}
+
+pheno_comm_80q_sansna <- pheno_comm_80q %>% 
+    filter(!is.na(duree_pic))
+
+summary(pheno_comm_80q$duree_pic)
+sd(pheno_comm_80q_sansna$duree_pic)
+
+
+summary(pheno_comm_80q_sansna$debut_pic_date)
+sd(pheno_comm_80q_sansna$debut_pic_date)
+
+summary(pheno_comm_80q_sansna$fin_pic_date)
+sd(pheno_comm_80q_sansna$fin_pic_date)
+```
+duree_pic
+Min. 1st Qu.  Median    Mean 3rd Qu.    Max.        sd
+3.291  26.329  29.962  30.635  36.690  56.595   11.1133
+
+debut_pic_date
+ Min.      1st Qu.       Median         Mean      3rd Qu.         Max.       
+"2021-09-17" "2022-03-26" "2022-04-17" "2022-04-06" "2022-04-21" "2022-06-03"   
+                    sd
+                41.57742
+
+fin_pic_date
+       Min.      1st Qu.       Median         Mean      3rd Qu.         Max. 
+"2021-09-26" "2022-05-06" "2022-05-15" "2022-05-07" "2022-05-18" "2022-06-08"
+                    sd
+                37.92998
+                
+            
+
+### 6.4.1 Effet des conditions abiotiques
+```{r}
+full.model <- lmer(debut_pic ~  pedoclim1 + pedoclim2 + mowing + N_dose + irrig + R_tot + T_min+ (1| field), data=pheno_comm_80q_sansna, REML=F,na.action="na.fail")
+vif(full.model) # VIF de chaque variable > 4.2 donc ok
+dredge(full.model) # ns
+```
+
+
+### 6.4.2. Effets des traits
+```{r}
+pheno_funct_80q_sansna <- pheno_funct_80q %>%   filter(!is.na(duree_pic))
+
+full.model <- lmer(duree_pic ~  flower_area   + onset + duration + tot_FU + pollen_volume +nectar_sugar + (1| field), data=pheno_funct_80q_sansna, REML=F,na.action="na.fail")
+vif(full.model) # VIF de chaque variable > 4 donc ok
+dredge(full.model)
+best_model_tot <- lmer(duree_pic ~ onset + nectar_sugar+(1| field), data=pheno_funct_80q_sansna, na.action="na.fail")
+summary(best_model_tot)
+Anova(best_model_tot)
+r.squaredGLMM(best_model_tot)
+```
+Fixed effects:
+               Estimate Std. Error t value
+(Intercept)  61.20542   11.67199   5.244
+onset        -0.02218    0.00789  -2.811
+nectar_sugar  2.78374    0.84789   3.283
+
+Response: duree_pic
+                Chisq Df Pr(>Chisq)    
+onset         7.9008  1   0.004941 **
+nectar_sugar 10.7790  1   0.001027 **
+
+    R2m       R2c
+0.3215626 0.6703852
+
+### 6.4.3. Effet des richesses spécifiques
+```{r}
+full.model <- lmer(duree_pic ~ sp_richness+ nbsp_tot+ (1| field), data=pheno_comm_80q_sansna, REML=F,na.action="na.fail")
+vif(full.model) # VIF de chaque variable > 2 donc ok
+dredge(full.model) 
+best_model_tot <- lmer(duree_pic ~ sp_richness+(1| field), data=pheno_comm_80q_sansna, na.action="na.fail")
+summary(best_model_tot)
+Anova(best_model_tot)
+r.squaredGLMM(best_model_tot)
+```
+Fixed effects:
+            Estimate Std. Error t value
+(Intercept)  21.7760     3.6831   5.912
+sp_richness   1.1576     0.4433   2.611
+
+Response: duree_pic
+             Chisq Df Pr(>Chisq)   
+sp_richness 6.8183  1   0.009023 **
+
+    R2m       R2c
+0.1021297 0.2649631
+
+### 6.4.4. Effet des CWV
+```{r}
+pheno_funct_log <- pheno_funct_80q %>% 
+  mutate(CWV_nectar_sugar=log(CWV_nectar_sugar+1) ,
+         CWV_tot_FU=log(CWV_tot_FU+1) ,
+         CWV_flower_area=log(CWV_flower_area+1) ,
+         CWV_repro_height=log(CWV_repro_height+1) ,
+         CWV_onset=log(CWV_onset+1) ,
+         CWV_duration=log(CWV_duration+1) )
+
+pheno_funct_log_sansna <- pheno_funct_log %>% 
+    filter(!is.na(duree_pic))
+
+full.model <- lmer(duree_pic ~ CWV_nectar_sugar + CWV_tot_FU + CWV_flower_area + CWV_repro_height  + CWV_duration + (1| field), data=pheno_funct_log_sansna, REML=F,na.action="na.fail")
+vif(full.model) # VIF > 15 donc onset enlevé
+dredge(full.model) #ns et avec onset aussi
+best_model_tot <- lmer(duree_pic ~ CWV_flower_area+CWV_repro_height+(1| field), data=pheno_funct_log_sansna, na.action="na.fail")
+summary(best_model_tot)
+Anova(best_model_tot)
+r.squaredGLMM(best_model_tot)
+```
+
+
+
+## 6.5. Effet du mois de tonte
+
+### 6.5.1. Sur la date du pic de floraison
+```{r}
+pheno_comm_80q <- pheno_comm_80q %>% 
+  mutate(septembre=as.numeric(septembre),
+         octobre=as.numeric(octobre),
+         novembre=as.numeric(novembre),
+         avril=as.numeric(avril),
+         mai=as.numeric(mai),
+         juin=as.numeric(juin)
+         )
+m <- glm(date_j ~ juin, data=pheno_comm_80q)
+summary(m)
+```
+
+### 6.5.2. Sur l'aire sous la courbe
+```{r}
+m <- glm(aire ~ juin, data=pheno_comm_80q)
+summary(m)
+```
+
+
+```{r}
+pheno_funct_80q_parc <- pheno_funct_80q %>% 
+  dplyr::select(field, nectar_sugar,flower_area,date_j,flo_cov_tot,aire) %>% 
+  group_by(field) %>% 
+  summarise_all(mean) %>% 
+  filter(field!="P12")
+
+ggplot(pheno_funct_80q_parc, aes(y=flo_cov_tot, x=nectar_sugar,
+                          label=field,
+                          col=field)) +
+  geom_point(size=4,shape=18) +
+  theme(axis.text=element_text(size=16),
+        axis.title=element_text(size=20))+
+  theme(legend.title = element_text(size=18),
+        legend.text = element_text(size=12))+
+  scale_y_continuous(trans='log2')+
+  scale_x_continuous(trans='log2')
+```
+
+# 7. Corrélation des traits floraux à l'échelle communauté
+
+```{r}
+library(psych)
+pheno_CWM <- pheno_funct_80q %>% 
+  column_to_rownames("ID_quadrat") %>% 
+  dplyr::select(flower_area,pollen_volume, nectar_sugar,repro_height,tot_FU,duration,onset)
+cor <- corr.test(pheno_CWM,pheno_CWM,use="pairwise",method="spearman",adjust="bonferroni")
+cor$p.adj
+cor$r
+
+summary(pheno_CWM)
+sd(pheno_CWM$pollen_volume)
+sd(pheno_CWM$nectar_sugar)
+sd(pheno_CWM$tot_FU)
+sd(pheno_CWM$repro_height)
+sd(pheno_CWM$flower_area)
+sd(pheno_CWM$duration)
+sd(pheno_CWM$onset)
+```
+
+# 8. Analyses de pistes
+```{r}
+library(piecewiseSEM)
+library(nlme) 
+library(DiagrammeR)
+library(multcompView)
+```
+
+## 8.1. Date_j = Date du maximum de floraison
+
+### 8.1.1. Pic flo
+```{r}
+summary(pheno_comm_80q)
+
+pheno_comm_80q <- pheno_comm_80q %>% 
+  dplyr::select(date_j, aire, pic_flo,field, T_min , R_tot , irrig , N_dose , mowing , pedoclim1 , pedoclim2 , sp_richness,nbsp_tot)
+
+model <- psem(
+  lme(pic_flo~ sp_richness ,random = ~ 1 | field,pheno_comm_80q), 
+  
+  lme(sp_richness~T_min + R_tot + irrig + N_dose + mowing + pedoclim1 + pedoclim2 ,random = ~ 1 | field,pheno_comm_80q), 
+  
+   irrig %~~% mowing,
+    pedoclim1 %~~% mowing,
+    irrig %~~% pedoclim2
+  )
+
+coefs(model, pheno_comm_80q, standardize = "scale") 
+summary(model, conserve = T) 
+rsquared(model,pheno_comm_80q)
+plot(model)
+```
+
+### 8.2.1. Funct
+```{r}
+pheno_funct_80q2 <- pheno_funct_80q %>% 
+  dplyr::select(ID_quadrat,field,pic_flo,aire,date_j,nectar_sugar,flower_area,mowing,pedoclim2,sp_richness)
+
+model <- psem(
+  lme(pic_flo~ sp_richness + flower_area + nectar_sugar ,random = ~ 1 | field,pheno_funct_80q2), 
+  
+  lme(sp_richness~ mowing  + pedoclim2 ,random = ~ 1 | field,pheno_funct_80q2), 
+  
+  
+   lme(flower_area~ mowing ,random = ~ 1 | field,pheno_funct_80q2),
+  lme(nectar_sugar~ mowing ,random = ~ 1 | field,pheno_funct_80q2),
+  
+   flower_area %~~% nectar_sugar,
+   sp_richness %~~% nectar_sugar,
+   sp_richness %~~% flower_area
+  )
+
+coefs(model, pheno_funct_80q2, standardize = "scale") 
+summary(model, conserve = T) 
+rsquared(model,datatot)
+plot(model)
+```
+
+# 9. Approche par clustering
+
+## 9.1. PCA traits
+
+### 9.1.1. Run PCA
+```{r}
+funct_pca <- pheno_funct_80q %>% 
+  dplyr::select(ID_quadrat,sp_richness,19:25) %>% 
+ # mutate(pollen_volume=log(pollen_volume),
+ #        nectar_sugar=log(nectar_sugar),
+ #       tot_FU=log(tot_FU),
+ #       flower_area=log(flower_area),
+ #      repro_height=log(repro_height)) %>%
+  column_to_rownames("ID_quadrat")
+
+acp_funct <- PCA(funct_pca)
+fviz_pca_var(acp_funct, col.var = "contrib",
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             repel=TRUE)
+var <- get_pca_var(acp_funct)
+
+
+corrplot(var$cos2, is.corr=FALSE) 
+corrplot(var$contrib, is.corr=FALSE)
+fviz_eig(acp_funct)
+r <- dimdesc(acp_funct, axes = c(1,2), proba = 0.05)
+r$Dim.1
+r$Dim.2
+r <- dimdesc(acp_funct, axes = c(3,4), proba = 0.05)
+r$Dim.3
+r$Dim.4
+
+fviz_pca_ind (acp_funct, col.ind = "cos2",
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             repel = TRUE  )
+
+fviz_pca_var(acp_funct, col.ind = "cos2",
+             axes = c(2, 3),
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             repel = TRUE  )
+
+fviz_contrib(acp_funct, choice = "ind",axes=1:2)
+
+fviz_pca_biplot(acp_funct, 
+                axes = c(1, 2),
+                repel = TRUE,
+                col.var = "#EE7942", # Couleur des variables
+                col.ind = "#6E7B8B",# Couleur des individus
+               #select.ind = list(contrib = 30)
+               
+               )
+
+
+dim_pca_funct <-  get_pca_ind(acp_funct)
+dim_pca_funct$coord
+coord <- as_tibble(dim_pca_funct$coord)
+
+names <- pheno_funct_80q %>% 
+  dplyr::select(ID_quadrat)
+
+coord2 <- coord %>% 
+  cbind(names) %>% 
+  relocate(ID_quadrat) %>% 
+  dplyr::select(1:3) %>% 
+  mutate(PCA_Group = 
+           ifelse(Dim.1 <0 & Dim.2 > 0,"Gp1_cheap_numerous_early",
+                ifelse(Dim.1>0 & Dim.2 > 0," Gp2_costly_numerous_early",
+                ifelse(Dim.1<0&Dim.2< 0, "Gp3_cheap_few_late","Gp4_costly_few_late"))))
+
+
+pheno_funct_80q2 <- pheno_funct_80q %>% 
+  left_join(coord2)
+
+```
+
+## 9.2. CAH
+### Faire la classif
+```{r}
+cah <- HCPC(acp_funct,nb.clust=3)
+plot(cah,choice="map")
+fviz_cluster(cah,
+             repel=T,
+             show.clust.cent=T,
+             palette="jco",
+             ggtheme=theme_minimal(),
+             main="Factor map")
+
+cah$desc.var$quanti
+cah$desc.axes$quanti 
+cah$desc.ind$para 
+cah$desc.ind$dist
+
+names <- pheno_funct_80q %>% 
+  dplyr::select(ID_quadrat)
+groups_cah <- as_tibble(cah$data.clust) %>% 
+  cbind(names) %>% 
+  relocate("ID_quadrat") %>% 
+  dplyr::select(ID_quadrat,clust)
+
+pheno_funct_gpe <- pheno_funct_80q %>% 
+  left_join(groups_cah)
+
+summary(groups_cah$clust)
+
+```
+
+### Graphes: 
+```{r}
+
+theme_graphique<- theme(panel.border = element_blank(),
+                         panel.grid.major = element_blank(),
+                         panel.grid.minor = element_blank(),
+                         panel.background = element_blank(),
+                         axis.line = element_line(colour = "black"),
+                         strip.background=element_rect(colour="grey",
+                                                       fill="white"))
+```
+
+Pic flo :
+```{r}
+
+ggplot(aes(x=clust,y=pic_flo,col=clust,shape=clust),data=pheno_funct_gpe) +geom_point(size=3.5) +
+  scale_color_manual(values=c("royalblue1","gold","snow3","indianred2"))+
+  labs(x="CWMs floral traits cluster",y="Max flower cover")+
+  theme_graphique+
+  theme(axis.text=element_text(size=16),
+        axis.title=element_text(size=20))+ theme(legend.position = "none")
+```
+
+Date_j :
+```{r}
+ggplot(aes(x=clust,y=date_j,col=clust,shape=clust),data=pheno_funct_gpe) +geom_point(size=3.5) +
+  scale_color_manual(values=c("royalblue1","gold","snow3","indianred2"))+
+  labs(x="CWMs floral traits cluster",y="Max flower cover date")+
+  theme_graphique+
+  theme(axis.text=element_text(size=16),
+        axis.title=element_text(size=20))+ 
+  theme(legend.position = "none")
+```
+
+Aire :
+```{r}
+ggplot(aes(x=clust,y=aire,col=clust,shape=clust),data=pheno_funct_gpe) +geom_point(size=3.5) +
+  scale_color_manual(values=c("royalblue1","gold","snow3","indianred2"))+
+  labs(x="CWMs floral traits cluster",y="Annual flower cover")+
+  theme_graphique+
+  theme(axis.text=element_text(size=16),
+        axis.title=element_text(size=20))+ 
+  theme(legend.position = "none")
+```
+
+Durée_flo :
+```{r}
+ggplot(aes(x=clust,y=duree_pic,col=clust,shape=clust),data=pheno_funct_gpe) +geom_boxplot() + geom_jitter()+
+  scale_color_manual(values=c("royalblue1","gold","snow3","indianred2"))+
+  labs(x="CWMs floral traits cluster",y="Flower cover peak duration")+
+  theme_graphique+
+  theme(axis.text=element_text(size=16),
+        axis.title=element_text(size=20))+ 
+  theme(legend.position = "none")
+```
+
+Mowing :
+```{r}
+ggplot(aes(x=clust,y=mowing,col=clust,shape=clust),data=pheno_funct_gpe) +geom_boxplot() + geom_jitter()+
+  scale_color_manual(values=c("royalblue1","gold","snow3","indianred2"))+
+  labs(x="CWMs floral traits cluster",y="Mean number of mowing per year")+
+  theme_graphique+
+  theme(axis.text=element_text(size=16),
+        axis.title=element_text(size=20))+ 
+  theme(legend.position = "none")
+```
+
+
+### Anova sur les groupes CAH:
+```{r}
+mod <- lm(pic_flo~clust,data=pheno_funct_gpe)
+summary(mod)
+plot(mod)
+kruskal.test(pic_flo~clust,data=pheno_funct_gpe) #ns p = 0.09117
+pairwise.wilcox.test(pheno_funct_gpe$pic_flo,pheno_funct_gpe$clust,p.adjust.method="bonf") 
+
+
+mod <- lm(aire~clust,data=pheno_funct_gpe)
+summary(mod)
+plot(mod)
+shapiro.test(mod$residuals)
+t <-HSD.test(mod,"clust")
+t
+kruskal.test(aire~clust,data=pheno_funct_gpe) #ns
+
+
+mod <- lm(date_j~clust,data=pheno_funct_gpe)
+summary(mod)
+plot(mod)
+kruskal.test(date_j ~clust,data=pheno_funct_gpe) #ns
+pairwise.wilcox.test(pheno_funct_gpe$duree_pic,pheno_funct_gpe$clust,p.adjust.method="bonf") 
+
+mod <- aov(duree_pic~clust,data=pheno_funct_gpe)
+summary(mod)
+plot(mod)
+t <-HSD.test(mod,"clust")
+t
+TukeyHSD(mod, conf.level=.95)
+kruskal.test(duree_pic~clust,data=pheno_funct_gpe)
+pairwise.wilcox.test(pheno_funct_gpe$duree_pic,pheno_funct_gpe$clust,p.adjust.method="bonf") 
+
+mod <- aov(mowing~clust,data=pheno_funct_gpe)
+summary(mod)
+plot(mod)
+t <-HSD.test(mod,"clust")
+TukeyHSD(mod, conf.level=.95)
+kruskal.test(mowing~clust,data=pheno_funct_gpe)
+pairwise.wilcox.test(pheno_funct_gpe$mowing,pheno_funct_gpe$clust,p.adjust.method="bonf") 
+
+mod <- aov(irrig~clust,data=pheno_funct_gpe)
+summary(mod)
+plot(mod)
+t <-HSD.test(mod,"clust")
+t
+TukeyHSD(mod, conf.level=.95)
+kruskal.test(irrig~clust,data=pheno_funct_gpe)
+pairwise.wilcox.test(pheno_funct_gpe$irrig,pheno_funct_gpe$clust,p.adjust.method="bonf") 
+
+
+mod <- aov(N_dose~clust,data=pheno_funct_gpe)
+summary(mod)
+plot(mod)
+t <-HSD.test(mod,"clust")
+t
+TukeyHSD(mod, conf.level=.95)
+kruskal.test(N_dose~clust,data=pheno_funct_gpe)
+pairwise.wilcox.test(pheno_funct_gpe$N_dose,pheno_funct_gpe$clust,p.adjust.method="bonf") 
+
+
+mod <- lm(R_tot~clust,data=pheno_funct_gpe)
+summary(mod)
+plot(mod)
+t <-HSD.test(mod,"clust")
+t
+kruskal.test(R_tot~clust,data=pheno_funct_gpe)
+pairwise.wilcox.test(pheno_funct_gpe$R_tot,pheno_funct_gpe$clust,p.adjust.method="bonf") 
+
+mod <- lm(T_min~clust,data=pheno_funct_gpe)
+summary(mod)
+plot(mod)
+t <-HSD.test(mod,"clust")
+t
+kruskal.test(T_min~clust,data=pheno_funct_gpe)
+pairwise.wilcox.test(pheno_funct_gpe$T_min,pheno_funct_gpe$clust,p.adjust.method="bonf") 
+
+```
+
+--> duree_pic
+
+$means
+  duree_pic       std  r       Min      Max      Q25      Q50      Q75
+1  27.38326  3.005184 18 23.481013 35.78481 26.10127 26.63291 26.83544
+2  35.79928  5.987723  7 26.835443 43.60759 31.74684 36.75949 39.94937
+3  35.11162  6.773254 11 26.632911 46.60759 29.96203 36.62025 40.25316
+4  26.81013 28.499089  2  6.658228 46.96203 16.73418 26.81013 36.88608
+
+
+Kruskal-Wallis chi-squared = 15.125, df = 3, p-value = 0.001713
+
+Wilcox : 
+1 et 2 : p = 0.0076
+1 et 3 : p = 0.0043
+
+  1      2      3     
+2 0.0076 -      -     
+3 0.0043 1.0000 -     
+4 1.0000 1.0000 1.0000
+
+1 a
+2 b
+3 b
+4 ab
+
+
+--> mowing
+
+$groups
+    mowing groups
+4 3.833333      a
+3 2.727273      a
+2 2.357143     ab
+1 1.368421      b
+
+
+$clust
+         diff        lwr      upr     p adj
+2-1 0.9887218 -0.2526992 2.230143 0.1584886
+3-1 1.3588517  0.2950866 2.422617 0.0077512
+4-1 2.4649123  0.7205682 4.209256 0.0028505
+3-2 0.3701299 -0.9873992 1.727659 0.8826395
+4-2 1.4761905 -0.4613402 3.413721 0.1884436
+4-3 1.1060606 -0.7227355 2.934857 0.3757430
+
+
+N_dose : 
+
+--> N_dose
+
+
+$groups
+     N_dose groups
+2 354.54000      a
+3 112.73000      b
+1  41.42526      b
+4  34.66667      b
+
+$clust
+           diff        lwr       upr     p adj
+2-1  313.114737  155.89048 470.33899 0.0000284
+3-1   71.304737  -63.41964 206.02911 0.4921991
+4-1   -6.758596 -227.67736 214.16016 0.9997955
+3-2 -241.810000 -413.73917 -69.88083 0.0029966
+4-2 -319.873333 -565.25891 -74.48775 0.0064158
+4-3  -78.063333 -309.67783 153.55116 0.8008287
+
+
+NS pour pédoclimat
+
+--> R_tot
+data:  R_tot by clust
+Kruskal-Wallis chi-squared = 11.356, df = 3, p-value = 0.009949
+
+1 et 2 diff p = 0.011
+
+$groups
+     R_tot groups
+2 620.1857      a
+3 579.0545      ab
+4 511.9000      ab
+1 503.7211      b
+
+--> T_min
+
+	Kruskal-Wallis rank sum test
+
+data:  T_min by clust
+Kruskal-Wallis chi-squared = 11.513, df = 3, p-value = 0.009254
+
+1 et 2 diff : p = 0.0096
+
+$groups
+     T_min groups
+2 2.314286      a
+3 1.709091     ab
+4 1.166667     ab
+1 1.015789      b
+
+
+# 10. Effet des pratiques sur la présence d'une espèce
+```{r}
+bota_wide_tot <- bota_80q_wide %>% 
+  left_join(pheno_comm_80q) %>% 
+  relocate(ID_quadrat, field, quadrat, mowing, N_dose, irrig)
+
+full.model <- lmer(Plantago_lanceolata ~ mowing + N_dose + irrig + pedoclim1 + pedoclim2+ (1| field), data=bota_wide_tot, REML=F,na.action="na.fail")
+vif(full.model) # VIF de chaque variable > 2 donc ok
+dredge(full.model) 
+best_model_tot <- lmer(pic_flo ~ sp_richness +(1| field), data=pheno_comm_80q, na.action="na.fail")
+summary(best_model_tot)
+Anova(best_model_tot)
+r.squaredGLMM(best_model_tot)
+```
+
+# 11. Mean data FLORES traits
+```{r}
+FLORES_clean_data <- read.csv(file="D:/Mes Donnees/Donnees_these/Donnees_Lea/Data_op/FLORES_clean_data.csv",sep=";") 
+
+FLORES_clean_data_mean <-  FLORES_clean_data%>% 
+  dplyr::select(species,total_FU_number,flower_area,reproductive_height,pollen_volume,nectar_sugar_content,flowering_duration_degree,flowering_onset_degree) %>% 
+  group_by(species) %>% 
+  summarize_all(mean,na.rm=T)
+
+write.csv(FLORES_clean_data_mean,file="D:/Mes Donnees/Donnees_these/Donnees_Lea/Data_op/FLORES_clean_data_mean.csv")
+```
+
+# 12. Boxplots figures remplaçant les tableaux
+
+## 12.1. Theme graphique
+```{r}
+theme_graphique<- theme(panel.border = element_blank(),
+                         panel.grid.major = element_blank(),
+                         panel.grid.minor = element_blank(),
+                         panel.background = element_blank(),
+                         axis.line = element_line(colour = "black"),
+                  strip.background=element_rect(colour="grey",fill="white"))
+
+
+```
+
+## 12.2. Les 4 indicateurs
+```{r}
+descr_data_comm <- pheno_comm_80q %>% dplyr::select(ID_quadrat,sp_richness,aire,pic_flo,date_j,duree_pic,date) 
+
+
+ggplot(aes(x=aire),data=descr_data_comm) + geom_density(fill="#B23AEE", color="#e9ecef", alpha=0.8)+
+  labs(x="Annual flower cover")+
+  theme_graphique+
+  theme(axis.text=element_text(size=16),
+        axis.title=element_text(size=20))+ 
+  theme(legend.position = "none")
+
+ggplot(aes(x=pic_flo),data=descr_data_comm) + geom_density(fill="#69b3a2", color="#e9ecef", alpha=0.8)+
+  labs(x="Max flower cover")+
+  theme_graphique+
+  theme(axis.text=element_text(size=16),
+        axis.title=element_text(size=20))+ 
+  theme(legend.position = "none")
+
+ggplot(aes(x=date),data=descr_data_comm) + geom_density(fill="#EE6A50", color="#e9ecef", alpha=0.8)+
+  labs(x="Max flower cover date (date)")+
+  theme_graphique+
+  theme(axis.text=element_text(size=16),
+        axis.title=element_text(size=20))+ 
+  theme(legend.position = "none")
+
+ggplot(aes(x=duree_pic),data=descr_data_comm) + geom_density(fill="goldenrod2", color="#e9ecef", alpha=0.8)+
+  labs(x="Flower cover peak duration (days)")+
+  theme_graphique+
+  theme(axis.text=element_text(size=16),
+        axis.title=element_text(size=20))+ 
+  theme(legend.position = "none")
+
+
+
+
+ggplot(aes(x=sp_richness),data=descr_data_comm) + geom_density(fill="#FFBBFF", color="#e9ecef", alpha=0.8)+
+  labs(x="Flowering specific richness")+
+  scale_x_continuous(breaks = c(2, 4, 6, 8, 10, 12))+
+  theme_graphique+
+  theme(axis.text=element_text(size=16),
+        axis.title=element_text(size=20))
+```
+
+## 12.3. FCWM et FCWV
+```{r}
+descr_data_funct<- pheno_funct_80q %>% dplyr::select(ID_quadrat,19:25,41:47) 
+
+ggplot(aes(x=pollen_volume),data=descr_data_funct) + geom_density(fill="#436EEE", color="#e9ecef", alpha=0.8)+
+  labs(x="FCWM of pollen volume (mm3)")+
+  theme_graphique+
+  theme(axis.text=element_text(size=16),
+        axis.title=element_text(size=20))
+
+ggplot(aes(x=CWV_pollen_volume),data=descr_data_funct) + geom_density(fill="#436EEE", color="#e9ecef", alpha=0.8)+
+  labs(x="FCWV of pollen volume (mm3)")+
+  theme_graphique+
+  theme(axis.text=element_text(size=16),
+        axis.title=element_text(size=20))+
+     scale_x_continuous(breaks = c(0.01, 0.1, 1, 5, 10, 14))
+
+
+ggplot(aes(x=nectar_sugar),data=descr_data_funct) + geom_density(fill="#CD7054", color="#e9ecef", alpha=0.8)+
+  labs(x="FCWM of nectar sugar content (µg.µ-1)")+
+  theme_graphique+
+  theme(axis.text=element_text(size=16),
+        axis.title=element_text(size=20))
+
+ggplot(aes(x=CWV_nectar_sugar),data=descr_data_funct) + geom_density(fill="#CD7054", color="#e9ecef", alpha=0.8)+
+  labs(x="FCWV of nectar sugar content (µg.µ-1)")+
+  theme_graphique+
+  theme(axis.text=element_text(size=16),
+        axis.title=element_text(size=20))
+
+ggplot(aes(x=tot_FU),data=descr_data_funct) +
+geom_density(fill="#FF3E96", color="#e9ecef", alpha=0.8)+
+  labs(x="FCWM of total number of floral units")+
+  theme_graphique+
+  theme(axis.text=element_text(size=16),
+        axis.title=element_text(size=20))
+
+ggplot(aes(x=CWV_tot_FU),data=descr_data_funct) + geom_density(fill="#FF3E96", color="#e9ecef", alpha=0.8)+
+  labs(x="FCWV of total number of floral units")+
+  theme_graphique+
+  theme(axis.text=element_text(size=16),
+        axis.title=element_text(size=20))
+
+
+ggplot(aes(x=repro_height),data=descr_data_funct) +
+geom_density(fill="#008B45", color="#e9ecef", alpha=0.8)+
+  labs(x="FCWM of reproductive height (cm)")+
+  theme_graphique+
+  theme(axis.text=element_text(size=16),
+        axis.title=element_text(size=20))
+
+ggplot(aes(x=CWV_repro_height),data=descr_data_funct) + geom_density(fill="#008B45", color="#e9ecef", alpha=0.8)+
+  labs(x="FCWV of reproductive height (cm)")+
+  theme_graphique+
+  theme(axis.text=element_text(size=16),
+        axis.title=element_text(size=20))
+
+ggplot(aes(x=flower_area),data=descr_data_funct) +
+geom_density(fill="#FFC125", color="#e9ecef", alpha=0.8)+
+  labs(x="FCWM of flower area (cm2)")+
+  theme_graphique+
+  theme(axis.text=element_text(size=16),
+        axis.title=element_text(size=20))
+
+ggplot(aes(x=CWV_flower_area),data=descr_data_funct) + geom_density(fill="#FFC125", color="#e9ecef", alpha=0.8)+
+  labs(x="FCWV of flower area (cm2)")+
+  theme_graphique+
+  theme(axis.text=element_text(size=16),
+        axis.title=element_text(size=20))
+
+ggplot(aes(x=duration),data=descr_data_funct) +
+geom_density(fill="#FF3030", color="#e9ecef", alpha=0.8)+
+  labs(x="FCWM of flowering duration (sum of temperatures)")+
+  theme_graphique+
+  theme(axis.text=element_text(size=16),
+        axis.title=element_text(size=20))
+
+ggplot(aes(x=CWV_duration),data=descr_data_funct) + geom_density(fill="#FF3030", color="#e9ecef", alpha=0.8)+
+  labs(x="FCWV of flowering duration (sum of temperatures)")+
+  theme_graphique+
+  theme(axis.text=element_text(size=16),
+        axis.title=element_text(size=20))
+
+
+ggplot(aes(x=onset),data=descr_data_funct) +
+geom_density(fill="#C1CDCD", color="#e9ecef", alpha=0.8)+
+  labs(x="FCWM of flowering onset (sum of temperatures)")+
+  theme_graphique+
+  theme(axis.text=element_text(size=16),
+        axis.title=element_text(size=20))
+
+ggplot(aes(x=CWV_onset),data=descr_data_funct) + geom_density(fill="#C1CDCD", color="#e9ecef", alpha=0.8)+
+  labs(x="FCWV of flowering onset (sum of temperatures)")+
+  theme_graphique+
+  theme(axis.text=element_text(size=16),
+        axis.title=element_text(size=20))
+```
+
+# 13. Recouvrement de chaque espèce
+
+```{r}
+library(tidyverse)
+couv_sp <- bota_80q %>% 
+  select(species,cover_sp) %>% 
+  group_by(species) %>% 
+  summarise_all(sum) %>% 
+  ungroup() %>% 
+  mutate(tot_cov= sum(cover_sp)) %>% 
+  group_by(species) %>% 
+  mutate(cov_prmil = cover_sp/tot_cov*1000) 
+
+write.csv(couv_sp,file="D:/Mes Donnees/Donnees_these/Donnees_Lea/Data_op/pheno_couv_flo_par_sp.csv")
+
+```

@@ -1,0 +1,94 @@
+---
+title: "analysis"
+output: html_document
+date: "2024-05-27"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Voir toutes les info sur : https://www.productive-r-workflow.com/r/ 
+Mes id pour m'y connecter : mon mail perso genty.lea[at]hotmail.fr
+
+
+
+# Projet depuis lequel ouvrir le doc
+```{r}
+library(tidyverse)
+library(readxl)
+data <- read.csv("../input/data.csv")
+summary(data)
+```
+Si on utilise un script quarto ou Rmd il faut ajouter "../" devant le chemin sinon ça ne le lit pas
+Je n'ai plus besoin d'utiliser setwd car je suis dans un projet, je ne lui indique que le chemin dans le projet
+
+# Lire un fichier excel
+```{r}
+data2 <- read_excel("../input/data.xlsx",na="NA") 
+```
+read_excel est l'équivalent de read_csv pour les fichiers excel, évite l'étape de transformer un fichier excel en fichier csv
+
+# Create functions
+
+```{r}
+print(
+  round(mean(subset(
+    na.omit(data), species == "Adelie" & island == "Torgersen"
+  )$bill_length_mm), 2)
+)
+print(
+  round(mean(subset(
+    na.omit(data), species == "Adelie" & island == "Biscoe"
+  )$bill_length_mm), 2)
+)
+print(
+  round(mean(subset(
+    na.omit(data), species == "Adelie" & island == "Dream"
+  )$bill_length_mm), 2)
+)
+```
+Ici c'est dupliqué 3 fois, le mieux est d'utiliser une fonction
+
+Une fonction permet d'appliquer la même chose à divers arguments, par exemple:
+```{r}
+multiply_by_two <- function(a) {
+  return(a*2)
+}
+
+multiply_by_two(5)
+```
+
+Fonction pour calculer le mean bill des oiseaux pour chaque île :
+```{r}
+calc_mean_bill <- function(island_name) {
+  filtered_data <- subset(na.omit(data), species == "Adelie" & island == island_name)
+  mean_bill_length <- mean(filtered_data$bill_length_mm)
+  return(round(mean_bill_length, 2))
+}
+
+# Call the function for each island
+calc_mean_bill("Torgersen")
+calc_mean_bill("Biscoe")
+calc_mean_bill("Dream")
+
+
+multiply_by <- function(a){
+  return(a*234)
+}
+multiply_by(311)
+```
+
+Exemple pour les modèles mixtes :
+```{r}
+funct_glmm <- function(var_a_expl){
+  full.model <- lmer(var_a_expl ~  pedoclim1 + pedoclim2 + mowing + N_dose + irrig + R_tot + T_min+ (1| field), data=pheno_funct_cwv_poll, REML=F,na.action="na.fail")
+}
+
+funct_glmm(var_a_expl)
+```
+je peux automatiser la phase de modèle en mettant comme argument de la fonction la variable à expliquer 
+je peux également mettre le dredge dans le modèle par contre la partie d'après avec les variables sélectionnées par le modèle est plus complexe et sera plutôt à répliquer manuellement
+voir chatGPT pour automatiser la création de la fonction
+
+
